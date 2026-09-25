@@ -14,7 +14,7 @@ import numpy as np
 import itertools
 import random
 # import logging
-from pathlib import Path #hi for update
+from pathlib import Path
 
 from heppy.pythiautils import configuration as pyconf
 
@@ -23,6 +23,15 @@ ROOT.gROOT.SetBatch(True)
 # Automatically set Sumw2 when creating new histograms
 ROOT.TH1.SetDefaultSumw2()
 ROOT.TH2.SetDefaultSumw2()
+
+def getTrackingData():
+    with ROOT.TFile("~/tracking.root", "READ") as f:
+        efficiency = f.Get("efficiency")
+        resolution_means = f.Get("resolution_means")
+        resolution_sigmas = f.Get("resolution_sigmas")
+        return efficiency, resolution_means, resolution_sigmas
+
+efficiency, resolution_means, resolution_sigmas = getTrackingData()
 
 def linbins(xmin, xmax, nbins):
     return np.linspace(xmin, xmax, nbins+1)
