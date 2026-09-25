@@ -5,6 +5,8 @@ Next:numberShowInfo = 0
 Next:numberShowProcess = 0
 Stat:showProcessLevel = on
 
+###might need to set random in future?
+
 # 2 -> 2 jet production, oversampling by pThat^4
 
 ### beams

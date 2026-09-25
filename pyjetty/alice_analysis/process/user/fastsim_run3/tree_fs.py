@@ -12,6 +12,7 @@ import ROOT
 import argparse
 import numpy as np
 import itertools
+import random
 # import logging
 from pathlib import Path
 
@@ -136,12 +137,55 @@ class FastsimTreeBuilder:
 
     def get_gen_parts(self, pythia):
         return pythiafjext.vectorize_select(pythia, [pythiafjext.kFinal, pythiafjext.kCharged], 0, True)
-    def save_gen_parts(parts):
+    
+    def save_gen_parts(self, parts):
         pass
     def get_det_parts(self, parts_gen):
         # apply all detector effects, and return a new list of detector-level particles
-        return parts_gen # just a placeholder for now so the code runs
-    def save_det_parts(parts):
+        det_parts = []
+        for p in parts_gen:
+            #acceptance
+            if not (self.eta_min <= p.eta() <= self.eta_max):
+                continue
+            
+            #tracking efficiency
+            if np.random.random() > self.tracking_eff:
+                continue
+            
+            #pT resolution
+            pt = p.pt()
+            sigma_pt = self.pT_resolution * pt
+            pt_smeared = np.random.normal(pt, sigma_pt)
+
+            #unphysical pT
+            if pt_smeared <= 0:
+                continue
+
+            #track pT threshold
+            if pt_smeared < self.trk_pT_min:
+                continue
+            
+            p_det = fj.PseudoJet( 
+                p.px(),
+                p.py(),
+                p.pz(),
+                p.e()
+            )
+
+            p_det.reset_momentum_PtYPhiM(
+                pt_smeared,
+                p.rap(),
+                p.phi(),
+                p.m()
+            )
+
+            det_parts.append(p_det)
+
+            # if random.random() < self.tracking_eff: #WHERE DOES TRACKING_EFF COME FROM
+                # det_parts.append(p)
+        return det_parts # just a placeholder for now so the code runs
+    
+    def save_det_parts(self, parts):
         pass
 
     def analyze(self, parts, level):
