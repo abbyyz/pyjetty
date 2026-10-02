@@ -24,14 +24,6 @@ ROOT.gROOT.SetBatch(True)
 ROOT.TH1.SetDefaultSumw2()
 ROOT.TH2.SetDefaultSumw2()
 
-def getTrackingData():
-    with ROOT.TFile("~/tracking.root", "READ") as f:
-        efficiency = f.Get("efficiency")
-        resolution_means = f.Get("resolution_means")
-        resolution_sigmas = f.Get("resolution_sigmas")
-        return efficiency, resolution_means, resolution_sigmas
-
-efficiency, resolution_means, resolution_sigmas = getTrackingData()
 
 def linbins(xmin, xmax, nbins):
     return np.linspace(xmin, xmax, nbins+1)
@@ -60,13 +52,52 @@ class FastsimTreeBuilder:
         self.nev = args.nev
 
         # ALICE detector effects
-        self.eta_min, self.eta_max = config.get("eta_acc")
-        self.tracking_eff = config.get("tracking_eff")
-        self.pT_resolution = config.get("pT_resolution")
-        self.trk_pT_min = config.get("trk_pT_min")
+        self.eta_min, self.eta_max = self.config.get("eta_acc")
+        self.tracking_eff = self.config.get("tracking_eff")
+        self.pT_resolution = self.config.get("pT_resolution")
+        self.trk_pT_min = self.config.get("trk_pT_min")
 
         # EEC parameters
-        self.jet_R = config.get("jet_R", 0.4)
+        self.jet_R = self.config.get("jet_R", 0.4)
+
+        self._load_tracking_data()
+    
+    def _load_tracking_data(self):
+        tracking_cfg = self.config.get("tracking_data", {})
+        file_path = tracking_cfg.get("file_path")
+
+        self.h_eff = None
+        self.he_res_mean = None
+        self.h_res_sigma = None
+
+        if file_path:
+            expanded_path = os.path.expanduser(file_path)
+            if os.path.exists(expanded_path):
+                print(f"[INFO] Loading tracking parameters from: {expanded_path}")
+                obj_names = tracking_cfg.get("objects", {})
+
+                with ROOT.TFile.Open(expanded_path, "READ") as f:
+                    self.h_eff = f.Get(obj_names.get("efficiency", "efficiency"))
+                    self.h_res_mean = f.Get(obj_names.get("resolution_means", "resolution_means"))
+                    self.h_res_sigma = f.Get(obj_names.get("resolution_sigmas", "resolution_sigmas"))
+
+                    # Detach objects from file directory so they persist in memory
+                    for obj in [self.h_eff, self.h_res_mean, self.h_res_sigma]:
+                        if obj and hasattr(obj, "SetDirectory"):
+                            obj.SetDirectory(0)
+            else:
+                print(f"[WARNING] Tracking ROOT file '{expanded_path}' not found. Using fallbacks.")
+        
+    def _eval_obj(self, obj, val, fallback):
+        """Helper function to evaluate a ROOT TH1, TF1, or TGraph at a given value."""
+        if obj is None:
+            return fallback
+        if hasattr(obj, "GetBinContent"):  # TH1D / TH1F
+            bin_idx = obj.FindBin(val)
+            return obj.GetBinContent(bin_idx)
+        elif hasattr(obj, "Eval"):        # TGraph / TF1
+            return obj.Eval(val)
+        return fallback
 
     #---------------------------------------------------------------
     # Main processing function
@@ -153,19 +184,24 @@ class FastsimTreeBuilder:
         # apply all detector effects, and return a new list of detector-level particles
         det_parts = []
         for p in parts_gen:
+            pt = p.pt()
             #acceptance
             if not (self.eta_min <= p.eta() <= self.eta_max):
                 continue
             
             #tracking efficiency
-            if np.random.random() > self.tracking_eff:
+            eff = self._eval_obj(self.h_eff, pt, self.default_tracking_eff)
+            if np.random.random() > eff:
                 continue
             
             #pT resolution
-            pt = p.pt()
-            sigma_pt = self.pT_resolution * pt
-            pt_smeared = np.random.normal(pt, sigma_pt)
+            # pt = p.pt()
+            # sigma_pt = self.pT_resolution * pt
+            # pt_smeared = np.random.normal(pt, sigma_pt)
+            res_mean = self._eval_obj(self.h_res_mean, pt, 0.0)
+            res_sigma = self._eval_obj(self.h_res_sigma, pt, self.default_pT_resolution * pt)
 
+            pt_smeared = np.random.normal(pt + res_mean, res_sigma)
             #unphysical pT
             if pt_smeared <= 0:
                 continue
